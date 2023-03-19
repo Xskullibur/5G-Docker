@@ -1,140 +1,133 @@
-# docker_open5gs
-Docker files to build and run open5gs in a docker
+# Docker Implementation of Open5GS
+## Getting Started
 
-## Tested Setup
+> Respective .OVF files can be found [here](./exports)
+Make sure that you have the following VMs / Hosts setup.
+1. 5G-Docker-Ubuntu
+2. gNB-01-Ubuntu
+3. UE01-Server
 
-Docker host machine
+## Setup Open5GS Core Network
+> Instructions to build the base image can be found [here](docker-setup.md).
+### Configure the `.env` file
+> The [.env](.env) file is located in the project root directory.
 
-- Ubuntu 18.04 and 20.04
+```bash
+# Navigate to the project root directory and use your preferred text editor
+cd ~/docker_open5gs
+sudo nano .env
 
-SDRs tested with srsLTE eNB
-
-- Ettus USRP B210
-- LimeSDR Mini v1.3
-
-UERANSIM (gNB + UE) simulator
-
-## Build and Execution Instructions
-
-* Mandatory requirements:
-	* [docker-ce](https://docs.docker.com/install/linux/docker-ce/ubuntu)
-	* [docker-compose](https://docs.docker.com/compose)
-
-
-Clone repository and build base docker image of open5gs, kamailio, ueransim
-
-```
-git clone https://github.com/herlesupreeth/docker_open5gs
-cd docker_open5gs/base
-docker build --no-cache --force-rm -t docker_open5gs .
-
-cd ../ims_base
-docker build --no-cache --force-rm -t docker_kamailio .
-
-cd ../srslte
-docker build --no-cache --force-rm -t docker_srslte .
-
-cd ../ueransim
-docker build --no-cache --force-rm -t docker_ueransim .
-```
-
-### Build and Run using docker-compose
-
-```
-cd ..
-set -a
-source .env
-docker-compose build --no-cache
-docker-compose up
-
-# srsRAN eNB
-docker-compose -f srsenb.yaml up -d && docker attach srsenb
-# srsRAN gNB
-docker-compose -f srsgnb.yaml up -d && docker attach srsgnb
-# srsRAN ZMQ based setup
-    # eNB
-    docker-compose -f srsenb_zmq.yaml up -d && docker attach srsenb_zmq
-    # gNB
-    docker-compose -f srsgnb_zmq.yaml up -d && docker attach srsgnb_zmq
-    # 4G UE
-    docker-compose -f srsue_zmq.yaml up -d && docker attach srsue_zmq
-    # 5G UE
-    docker-compose -f srsue_5g_zmq.yaml up -d && docker attach srsue_5g_zmq
-
-# UERANSIM gNB
-docker-compose -f nr-gnb.yaml up -d && docker attach nr_gnb
-
-# UERANSIM NR-UE
-docker-compose -f nr-ue.yaml up -d && docker attach nr_ue
-```
-
-## Configuration
-
-For the quick run (eNB/gNB, CN in same docker network), edit only the following parameters in .env as per your setup
-
-```
-MCC
-MNC
-TEST_NETWORK --> Change this only if it clashes with the internal network at your home/office
-DOCKER_HOST_IP --> This is the IP address of the host running your docker setup
-SGWU_ADVERTISE_IP --> Change this to value of DOCKER_HOST_IP set above only if eNB/gNB is not running the same docker network/host
-UPF_ADVERTISE_IP --> Change this to value of DOCKER_HOST_IP set above only if eNB/gNB is not running the same docker network/host
-```
-
-If eNB/gNB is NOT running in the same docker network/host as the host running the dockerized Core/IMS then follow the below additional steps
-
-Under mme section in docker compose file (docker-compose.yaml, nsa-deploy.yaml), uncomment the following part
-```
 ...
-    # ports:
-    #   - "36412:36412/sctp"
+TEST_NETWORK=172.22.0.0/24 # Change this only if it clashes with the internal network at your home/office
+
+DOCKER_HOST_IP=192.168.1.223 # Update with IP of the machine/VM running the open5gs containers
+
+SGWU_ADVERTISE_IP=172.22.0.6 # Change this to value of DOCKER_HOST_IP set above only if eNB/gNB is not running the same docker network/host
+
+UPF_ADVERTISE_IP=172.22.0.8 # Change this to value of DOCKER_HOST_IP set above only if eNB/gNB is not running the same docker network/host
+...
+
+```
+
+### Start containers
+```bash
+sudo docker compose -f sa-deploy.yaml up -d
+```
+
+## Setup gNB
+Refer to [UERANSIM repository](https://github.com/aligungr/UERANSIM/wiki/Installation) on instructions to install.
+
+### Update the configuration file with your preferred text editor
+> Configuration file can be located at `~/UERANSIM/config/open5g-gnb.yaml`
+```bash
+cd ~/UERANSIM/
+nano ./config/open5gs-gnb.yaml
+```
+
+```bash
+...
+
+linkIp: 192.168.85.138 # gNB's local IP address for Radio Link Simulation (Change this to the Host IP Address)
+ngapIp: 192.168.85.138 # gNB's local IP address for N2 Interface (Change this to the Host IP Address)
+gtpIp: 192.168.85.138 # gNB's local IP address for N3 Interface (Change this to the Host IP Address)
+
+...
+
+
+# List of AMF address information
+amfConfigs:
+  - address: 172.22.0.10 # Change this to the value of DOCKER_HOST_IP
+    port: 38412
+
 ...
 ```
 
-Under amf section in docker compose file (docker-compose.yaml, nsa-deploy.yaml, sa-deploy.yaml), uncomment the following part
+### Start gNB
+```bash
+./build/nr-gnb -c ./config/open5gs-gnb.yaml
 ```
+
+## Setup UE
+### Update the configuration file with your preferred text editor
+> Configuration file can be located at `~/UERANSIM/config/open5g-ue-01.yaml`
+```bash
+nano ./config/open5gs-ue-01.yaml
+
 ...
-    # ports:
-    #   - "38412:38412/sctp"
+
+# IMSI number of the UE. IMSI = [MCC|MNC|MSISDN] (In total 15 digits)
+supi: 'imsi-999700000000001'
+# Mobile Country Code value of HPLMN
+mcc: '999'
+# Mobile Network Code value of HPLMN (2 or 3 digits)
+mnc: '99'
+
+...
+
+# Permanent subscription key
+key: '465B5CE8B199B49FAA5F0A2EE238A6BC'
+# Operator code (OP or OPC) of the UE
+op: 'E8ED289DEBA952E4283B54E88E6183CA'
+# This value specifies the OP type and it can be either 'OP' or 'OPC'
+opType: 'OPC'
+# Authentication Management Field (AMF) value
+amf: '8000'
+# IMEI number of the device. It is used if no SUPI is provided
+imei: '356938035643803'
+
+...
+
+# List of gNB IP addresses for Radio Link Simulation
+gnbSearchList:
+  - 127.0.0.1
+
 ...
 ```
 
-If deploying in SA mode only (sa-deploy.yaml), then uncomment the following part under upf section
-```
-...
-    # ports:
-    #   - "2152:2152/udp"
-...
-```
 
-If deploying in NSA mode only (nsa-deploy.yaml, docker-compose.yaml), then uncomment the following part under sgwu section
-```
-...
-    # ports:
-    #   - "2152:2152/udp"
-...
-```
-
-## Register a UE information
-
+### Register UE Information
 Open (http://<DOCKER_HOST_IP>:3000) in a web browser, where <DOCKER_HOST_IP> is the IP of the machine/VM running the open5gs containers. Login with following credentials
+
 ```
 Username : admin
 Password : 1423
 ```
+Using Web UI, add a subscriberopen5gs-ue.yaml with the information modified in the UE's configuration file
+| ![](.src/subscriber-1.png) | ![](.src/subscriber-2.png) |
+|---|---|
 
-Using Web UI, add a subscriber
+- IMSI
+- Subscriber Key (K)
+- Operator Key (OPc)
+- UE IPv4 Address
 
-## srsLTE eNB settings
-
-If SGWU_ADVERTISE_IP is properly set to the host running the SGWU container in NSA deployment, then the following static route is not required.
-On the eNB, make sure to have the static route to SGWU container (since internal IP of the SGWU container is advertised in S1AP messages and UE wont find the core in Uplink)
-
+### Start UE
+```bash
+cd ~/UERANSIM
+./build/nr-ue -c ./config/open5gs-ue-01.yaml
 ```
-# NSA - 4G5G Hybrid deployment
-ip r add <SGWU_CONTAINER_IP> via <SGWU_ADVERTISE_IP>
-```
 
-## Not supported
-- IPv6 usage in Docker
-
+## Authors and acknowledgment
+- [@herlesupreeth](https://github.com/herlesupreeth) - [Docker Open5GS Implementation](https://github.com/herlesupreeth/docker_open5gs)
+- [@open5gs](https://github.com/open5gs) - [Open5GS](https://github.com/open5gs/open5gs)
+- [@aligungr](https://github.com/aligungr) - [UERANSIM](https://github.com/aligungr/UERANSIM)
